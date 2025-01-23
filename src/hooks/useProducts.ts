@@ -12,10 +12,16 @@ interface Product {
     date: string;
 }
 
+interface DuplicateProductInfo {
+    products: Product[];
+    newProduct: Omit<Product, 'id' | 'created_at' | 'user_id'>;
+}
+
 export function useProducts(user: User | null) {
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [duplicateProduct, setDuplicateProduct] = useState<DuplicateProductInfo | null>(null);
 
     const fetchProducts = useCallback(async () => {
         if (!user) return;
@@ -43,10 +49,28 @@ export function useProducts(user: User | null) {
     }, [user]);
 
     const addProduct = useCallback(async (productData: Omit<Product, 'id' | 'created_at' | 'user_id'>) => {
-        if (!user) return;
+        if (!user) return false;
 
         try {
             setError(null);
+
+            // Prima controlla se esiste già un prodotto con lo stesso nome
+            const { data: existingProducts } = await supabase
+                .from('products')
+                .select('*')
+                .eq('user_id', user.id)
+                .ilike('name', productData.name.trim());
+
+            if (existingProducts && existingProducts.length > 0) {
+                // Salva le informazioni sui prodotti duplicati per il modale
+                setDuplicateProduct({
+                    products: existingProducts,
+                    newProduct: productData
+                });
+                return false;
+            }
+
+            // Se non esiste, procedi con l'inserimento
             const { error } = await supabase
                 .from('products')
                 .insert([
@@ -58,7 +82,6 @@ export function useProducts(user: User | null) {
 
             if (error) throw error;
             
-            // Fetch updated products list
             await fetchProducts();
             return true;
         } catch (err) {
@@ -121,13 +144,43 @@ export function useProducts(user: User | null) {
         }
     }, [user, fetchProducts]);
 
+    const replaceProduct = useCallback(async (oldProductId: number, newProductData: Omit<Product, 'id' | 'created_at' | 'user_id'>) => {
+        if (!user) return false;
+
+        try {
+            setError(null);
+            const { error } = await supabase
+                .from('products')
+                .update({
+                    ...newProductData,
+                    user_id: user.id,
+                })
+                .eq('id', oldProductId);
+
+            if (error) throw error;
+            
+            setDuplicateProduct(null);
+            await fetchProducts();
+            return true;
+        } catch (err) {
+            console.error('Error replacing product:', err);
+            if (err instanceof Error) {
+                setError(err.message);
+            }
+            return false;
+        }
+    }, [user, fetchProducts]);
+
     return {
         products,
         loading,
         error,
+        duplicateProduct,
+        setDuplicateProduct,
         fetchProducts,
         addProduct,
         updateProduct,
-        deleteProduct
+        deleteProduct,
+        replaceProduct
     };
 }

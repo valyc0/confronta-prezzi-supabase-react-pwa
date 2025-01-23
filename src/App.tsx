@@ -71,6 +71,7 @@ function App() {
             onUpdateProduct={updateProduct}
             editingProduct={editingProduct}
             onCancelEdit={() => setEditingProduct(null)}
+            products={products || []}
           />
           <ProductList 
             products={products}
